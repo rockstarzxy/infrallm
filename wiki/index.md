@@ -20,12 +20,15 @@ _No entity pages yet._
 - [[ai-infra-30d/week2/day09-scheduler]] — vLLM V1 Scheduler 逐段精读：token budget、num_computed_tokens、recompute 抢占、priority、async scheduling、scheduler-cls
 - [[ai-infra-30d/week2/day10-kv-cache]] — KVCacheManager/BlockPool/hash 链、prefix caching 实现、hybrid KV、KV connector 接口
 - [[ai-infra-30d/week2/day13-flash-attention]] — GPUModelRunner、persistent batch、torch.compile 与 piecewise CUDA graph、attention backend、FlashAttention、sampler/logits processor/结构化输出
+- [[ai-infra-30d/optimization/00-index]] — 推理优化专项：15 页问题驱动手册（TTFT/TPOT/吞吐/OOM/CPU 瓶颈/长上下文/Agent workload/结构化输出/量化/spec decode/MoE/并行/冷启动/成本），每页含判定、根因、决策表、验证实验
 
 ## Comparisons
 
 _No comparison pages yet._
 
 ## Syntheses
+
+- [[llm-training-30d/index]] — LLM 训练与后训练 30 天课程：分布式训练基础、SFT/LoRA/数据工程/DPO/RM、RLVR 与 rollout 系统（GRPO 家族、verl、权重同步、异步 RL）、Agentic RL 与推理模型配方（2026-09-29）
 
 - [[ai-inference-learning-path]] — AI 推理基础设施与优化的 30 天高强度学习路径（vLLM、分布式部署、推理优化、系统设计）
 - [[ai-infra-30d/reading-index]] — 30 天配套自包含学习材料索引（每天一篇完整教程，覆盖 Qwen/DeepSeek/GLM/MiniMax 模型）

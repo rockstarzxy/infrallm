@@ -248,6 +248,10 @@ vllm serve Qwen/Qwen2.5-72B-Instruct \
 |---|---|
 | `vLLM tuning playbook.md` | 完整的优化技术决策表 + 场景化配方 + 调优方法论 |
 
+## 延伸：问题驱动的优化专项
+
+本页的决策表是"技术 → 场景"。反过来"症状 → 技术"的手册见 [[optimization/00-index]]，建议现在通读 [[optimization/01-diagnosis-playbook]]、[[optimization/02-ttft-high]]、[[optimization/03-tpot-itl-jitter]]、[[optimization/04-throughput-low]]，把 Week 2 的实验数据按四象限重新归类一次。
+
 ## Week 3 预览
 
 下周进入分布式推理和部署：

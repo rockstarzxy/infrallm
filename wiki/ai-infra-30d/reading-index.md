@@ -65,6 +65,30 @@ Week 2 的 Day 8/9/10/13 是源码级内容，按 vLLM V1（`vllm/v1/`）编写�
 | 29 | [[day29-final-design]] | 最终设计 | 10 章节的生产级推理平台设计模板 |
 | 30 | [[day30-retrospective]] | 面试复盘 | 20 个高频面试题 + 公式速查 + 进阶方向 |
 
+## 推理优化专项：问题驱动手册
+
+日课按技术点组织，专项按问题组织。线上或压测遇到症状时从 [[optimization/00-index]] 进入，按"判定 → 根因 → 方法 → 副作用 → 验证"走一遍。
+
+| 编号 | 页面 | 症状 |
+|---|---|---|
+| 01 | [[optimization/01-diagnosis-playbook]] | 通用诊断流程与四象限归类 |
+| 02 | [[optimization/02-ttft-high]] | TTFT 过高 |
+| 03 | [[optimization/03-tpot-itl-jitter]] | TPOT/ITL 抖动与 P99 长尾 |
+| 04 | [[optimization/04-throughput-low]] | 吞吐上不去 |
+| 05 | [[optimization/05-oom-preemption]] | OOM 与抢占 |
+| 06 | [[optimization/06-gpu-util-low-cpu-bound]] | GPU 利用率低、CPU 瓶颈 |
+| 07 | [[optimization/07-long-context]] | 长上下文 |
+| 08 | [[optimization/08-multi-turn-agent-workload]] | 多轮对话与 Agent workload |
+| 09 | [[optimization/09-structured-output-tool-calls]] | 结构化输出与 tool calling |
+| 10 | [[optimization/10-quantization-choice]] | 量化选型与量化后没变快 |
+| 11 | [[optimization/11-spec-decode-no-gain]] | 推测解码没有收益 |
+| 12 | [[optimization/12-moe-serving]] | MoE 部署 |
+| 13 | [[optimization/13-parallelism-choice]] | 并行策略选择 |
+| 14 | [[optimization/14-cold-start-autoscaling]] | 冷启动与扩缩容 |
+| 15 | [[optimization/15-cost-per-token]] | 单位 token 成本与容量规划 |
+
+建议在 Day 14 和 Day 21 之后各通读一遍，Day 28 最终实验时按专项页的实验做。
+
 ## 涉及的中国模型
 
 | 模型 | 涉及章节 | 主要知识点 |
