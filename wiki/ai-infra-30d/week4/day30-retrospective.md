@@ -54,7 +54,7 @@ updated: 2026-06-01
 PagedAttention 消除 KV Cache 碎片（利用率从 ~30% → ~96%），continuous batching 让请求在任意 iteration 进出 batch，CUDA Graph 减少 kernel launch 开销。相同显存下能处理 2-4x 更多并发请求。
 
 **2. PagedAttention 和 OS 虚拟内存的类比是什么？**
-逻辑 KV 地址 → 物理 KV block 映射（类比页表），按需分配 block（类比按需分页），Copy-on-Write（共享前缀时），Swap（GPU → CPU 交换，类比 page fault + swap）。
+逻辑 KV 地址 → 物理 KV block 映射（类比页表），按需分配 block（类比按需分页）。论文还有 Copy-on-Write 和 Swap，但 vLLM V1 已经去掉两者：抢占只用 recompute，靠 prefix cache 的 hash 链让重算代价接近零；分叉靠"只共享写满的 block"避免 CoW。面试时说清"论文设计"和"当前实现"的差别是加分点。
 
 **3. Prefill 和 Decode 的瓶颈为什么不同？**
 Prefill 处理整个 prompt，大矩阵乘法，compute-bound。Decode 每步只处理 1 个 token，矩阵向量乘法，需要读全部权重但计算量极小，memory-bandwidth-bound。

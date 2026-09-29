@@ -165,28 +165,42 @@ EAGLE 的 acceptance rate 通常高于 Medusa。
 
 ## Part 4: 在 vLLM 中使用 Speculative Decoding
 
-### Draft Model 方式
+V1 用统一的 `--speculative-config` JSON 配置，旧的 `--speculative-model` / `--num-speculative-tokens` 独立参数已废弃。实现在 `vllm/v1/spec_decode/`（`eagle.py`、`ngram_proposer.py`、`medusa.py`），验证在 `vllm/v1/sample/rejection_sampler.py`，调度器接入点见 Day 9 Part 5。
+
+### N-gram 方式（不需要额外模型，先用它建立手感）
 
 ```bash
 vllm serve Qwen/Qwen2.5-7B-Instruct \
-  --speculative-model Qwen/Qwen2.5-0.5B-Instruct \
-  --num-speculative-tokens 5 \
-  --speculative-draft-tensor-parallel-size 1
+  --speculative-config '{"method":"ngram","num_speculative_tokens":5,"prompt_lookup_max":4,"prompt_lookup_min":2}'
 ```
 
-参数说明：
-- `--speculative-model`：draft model 名称
-- `--num-speculative-tokens`：每次猜测多少个 token（k 值）
-- `--speculative-draft-tensor-parallel-size`：draft model 的 TP 大小（通常设 1）
+### EAGLE / EAGLE-3 方式（当前收益最好的通用方案）
 
-### N-gram 方式
+```bash
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --speculative-config '{"method":"eagle3","model":"yuhuili/EAGLE3-LLaMA3.1-Instruct-8B","num_speculative_tokens":3}'
+```
+
+### MTP 方式（DeepSeek-V3/R1、Qwen3-Next 等自带 MTP head 的模型）
+
+```bash
+vllm serve deepseek-ai/DeepSeek-V3 --tensor-parallel-size 8 \
+  --speculative-config '{"method":"mtp","num_speculative_tokens":1}'
+```
+
+### Draft model 方式
 
 ```bash
 vllm serve Qwen/Qwen2.5-7B-Instruct \
-  --speculative-model "[ngram]" \
-  --num-speculative-tokens 5 \
-  --ngram-prompt-lookup-max 4
+  --speculative-config '{"method":"draft_model","model":"Qwen/Qwen2.5-0.5B-Instruct","num_speculative_tokens":5,"draft_tensor_parallel_size":1}'
 ```
+
+字段说明：
+- `method`：`ngram` / `eagle` / `eagle3` / `mtp` / `medusa` / `draft_model`，支持列表随版本变化，以 `--help` 为准
+- `num_speculative_tokens`：每步提出多少 draft token（k 值）
+- `model`：draft 模型或 EAGLE head 的路径
+
+观察指标：`vllm:spec_decode_num_draft_tokens_total`、`vllm:spec_decode_num_accepted_tokens_total`、`vllm:spec_decode_num_accepted_tokens_per_pos`（按位置的接受率，看 k 设多大合适）。
 
 ### 观察效果
 

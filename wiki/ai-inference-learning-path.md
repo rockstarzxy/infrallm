@@ -4,7 +4,7 @@ type: synthesis
 tags: [ai-infra, inference, vllm, distributed-systems, optimization, learning-path]
 sources: []
 created: 2026-06-01
-updated: 2026-06-01
+updated: 2026-09-27
 ---
 
 # AI 推理基础设施与优化 — 30 天高强度学习路径
@@ -57,6 +57,7 @@ updated: 2026-06-01
 10. **观测体系应落到 Prometheus 指标。** 至少记录 `time_to_first_token`、`inter_token_latency`、`e2e_request_latency`、`request_queue_time`、`request_prefill_time`、`request_decode_time`、running/waiting/swapped requests、KV cache usage，以及 speculative decoding accepted/draft token 指标。
 11. **Benchmark 必须控制变量。** 固定模型、dtype、tokenizer、chat template、输入/输出 token 分布、并发模型（固定 concurrency 还是固定 request rate）、warmup、采样参数和随机种子；否则很多“优化收益”只是 workload 改了。
 12. **模型加载、冷启动和权重分发也属于 inference infra。** 生产里需要理解 safetensors、tensorizer/model streamer、容器镜像、权重缓存、启动时间、CUDA graph capture 和 rolling update 对可用性的影响。
+13. **vLLM 源码学习必须以 V1 引擎为准（2026-09-27 修订）。** V1 从 0.8 成为默认，V0 已在 2025 年下半年移除。V0 的 `SequenceGroup`、`core/block_manager.py`、`worker/model_runner.py`、WAITING/RUNNING/SWAPPED 三队列、swap 抢占、copy-on-write 在当前代码里都不存在。V1 的关键事实：API server 与 EngineCore 分进程（ZMQ + msgspec）；调度器是单一 token budget 循环，用 `num_computed_tokens` 统一 prefill/decode/chunked prefill/spec decode；抢占只有 recompute，靠保留 hash 的 free block 让重算代价接近零；prefix caching 内建且默认开启；模型执行用 persistent batch + torch.compile + piecewise CUDA graph；扩展点是 `--scheduler-cls`、`--logits-processors`、KV connector、`--speculative-config`。Week 2 的 Day 8/9/10/13 已按此重写，并要求每天有改源码的交付物。
 
 ---
 
@@ -220,50 +221,64 @@ updated: 2026-06-01
 
 目标：能解释常见优化为何有效，并能通过实验验证收益边界。
 
-### Day 8: vLLM 架构源码阅读
+### Day 8: vLLM V1 架构与请求生命周期（源码级）
+
+先定位源码：`python -c "import vllm, os; print(os.path.dirname(vllm.__file__))"`，所有路径以 `vllm/v1/` 为准。V0 的 `SequenceGroup`、`core/block_manager.py`、`SWAPPED` 队列已经不存在。
 
 阅读顺序：
-1. `entrypoints/`：API server 如何接入请求。
-2. `engine/`：LLMEngine / AsyncLLMEngine。
-3. `core/scheduler.py`：调度策略、prefill/decode 混排、preemption。
-4. `core/block_manager.py`：KV block 管理。
-5. `worker/`：GPU worker 执行路径。
-6. `attention/`：attention backend 选择。
+1. `entrypoints/openai/`：chat template、参数校验、tool calling 解析。
+2. `v1/engine/async_llm.py`、`processor.py`、`output_processor.py`：前端进程做 tokenize / detokenize / stop string。
+3. `v1/engine/core.py`：EngineCore 独立进程的 busy loop，`step()` 三段。
+4. `v1/engine/core_client.py`、`serial_utils.py`：ZMQ + msgspec 的进程间通信。
+5. `v1/executor/`：UniProc / Multiproc / Ray，共享内存广播 SchedulerOutput。
+6. `v1/request.py`：`RequestStatus` 状态机（没有 SWAPPED）。
+
+实验：从源码安装；py-spy 分别抓 API server 和 EngineCore 进程；给 vLLM 加一个自定义 Prometheus 指标并在 `/metrics` 看到。
 
 交付物：
-- `vLLM request lifecycle 源码笔记.md`
+- `vllm-v1-request-lifecycle.md`（带真实路径和行号）
+- `custom-metric.diff`
 
-### Day 9: Scheduler 深入
+### Day 9: V1 Scheduler 逐段精读
+
+文件：`v1/core/sched/scheduler.py`、`sched/output.py`、`sched/request_queue.py`。
 
 重点问题：
-- 请求何时进入 waiting / running / swapped。
-- prefill 请求和 decode 请求如何共同调度。
-- preemption 在什么情况下发生。
-- priority scheduling 在业务上解决什么问题。
+- `num_computed_tokens` 如何把 prefill、decode、chunked prefill、spec decode 统一成一条代码路径。
+- `schedule()` 的三段：先服务 running、无抢占时才拉 waiting、打包输出。`max_num_seqs` 和 `max_num_batched_tokens` 各卡在哪一段。
+- 抢占为什么只剩 recompute，被抢占请求为什么通常不需要重算全部 prefill。
+- priority 队列、长 prefill 保护参数、async scheduling、结构化输出的 `WAITING_FOR_FSM`、KV connector 的 `WAITING_FOR_REMOTE_KVS` 各在哪里接入。
 
 实验：
-- 构造长 prompt 和短 prompt 混合 workload。
-- 观察短请求是否被长请求拖慢。
+- 单进程模式打印每步 `num_computed_tokens`，画出 chunked prefill 时序。
+- 长短混合 workload 对比 `max_num_batched_tokens=512/8192`。
+- 触发抢占并观察 `num_preemptions_total`。
+- 改一行抢占顺序看吞吐变化；用 `--scheduler-cls` 实现租户配额调度器。
 
 交付物：
-- `scheduler-analysis.md`
+- `scheduler-analysis.md`、`preempt-order.diff`、`tenant_quota_scheduler.py`
 
-### Day 10: KV Cache 优化
+### Day 10: KVCacheManager、Prefix Caching 与 KV Connector（源码级）
+
+文件：`v1/core/kv_cache_manager.py`、`block_pool.py`、`kv_cache_utils.py`、`single_type_kv_cache_manager.py`、`distributed/kv_transfer/kv_connector/v1/`。
 
 学习内容：
-- prefix caching / prompt caching
-- chunked prefill
-- KV cache quantization
-- sliding window / attention sink / eviction 思路
-- KV transfer / KV connector / disaggregated serving 的基本概念
-- prefix-aware routing：让共享前缀请求尽量落到同一 replica
+- block 生命周期：分配 → 写满登记 hash → 释放回 free 队列（保留 hash）→ 命中复用或 LRU 惰性驱逐。
+- hash 链（含 parent hash、多模态 hash、LoRA、`cache_salt`），为什么只有写满的 block 才缓存。
+- V1 为什么不需要 swap 和 copy-on-write。
+- hybrid KV cache：full attention / sliding window / Mamba 层各自的 manager 和 `KVCacheGroup`。
+- KV connector 的 scheduler 侧和 worker 侧回调，逐层 save/load 如何和计算重叠；NIXL / LMCache / SharedStorage / Offloading 各自用途。
+- KV FP8；StreamingLLM / H2O 类有损方法只做了解。
+- prefix-aware routing：让共享前缀请求尽量落到同一 replica（Day 18 展开）。
 
 实验：
-- 对重复系统 prompt 验证 prefix caching 是否启用和命中，测量 TTFT 变化。
-- 对长 prompt 调整 chunked prefill 相关参数，观察 TTFT、ITL/TPOT 和吞吐变化。
+- 用 `prefix_cache_hits/queries` 指标验证命中、hash 链和 `cache_salt` 隔离。
+- 小 KV 实例观察驱逐；抢占恢复时 `num_computed_tokens` 恢复到多少。
+- 参照 `SharedStorageConnector` 写一个文件 KV connector，两实例共享前缀。
+- bf16 vs fp8 KV 的 block 数和质量对比。
 
 交付物：
-- `kv-cache-optimization-report.md`
+- `kv-cache-manager-notes.md`、`prefix-cache-experiments.md`、`my_file_connector.py`
 
 ### Day 11: Quantization
 
@@ -295,20 +310,25 @@ updated: 2026-06-01
 交付物：
 - `speculative-decoding-notes.md`
 
-### Day 13: Attention 优化和 FlashAttention
+### Day 13: 模型执行层：GPUModelRunner、CUDA Graph、Attention Backend 与 Sampler
+
+文件：`v1/worker/gpu_model_runner.py`、`gpu_input_batch.py`、`v1/attention/backends/`、`compilation/`、`v1/sample/`、`v1/structured_output/`。
 
 学习内容：
-- attention 的 IO 开销为什么大。
-- FlashAttention 如何通过 tiling 降低 HBM 读写。
-- FlashAttention-2 的并行化改进。
-- decode 阶段为什么还需要 FlashDecoding / paged attention 类优化。
+- `execute_model()` 五阶段：persistent batch 增量更新、扁平输入和 `slot_mapping`、forward context、compute_logits、sampler。
+- torch.compile 和 piecewise CUDA graph 的分工，attention 为什么被切出 graph，`cudagraph_mode` 各模式，`--enforce-eager` 实际关掉了什么，编译缓存与冷启动。
+- attention backend 选择逻辑；FA2/FA3/FlashInfer/Triton/MLA 的适用条件；FlashAttention 的 tiling、online softmax、FlashDecoding split-KV。
+- Sampler 的处理顺序，batch 内混合采样参数的代价，V1 `LogitsProcessor` 接口。
+- 结构化输出从 `WAITING_FOR_FSM` 到 bitmask apply 的完整路径及开销来源。
 
 实验：
-- 对比不同 attention backend 或不同序列长度下的性能变化。
-- 如果硬件/环境不支持，至少完成机制推导和 benchmark 设计。
+- 四种 CUDA graph 配置对比并数 kernel launch 次数。
+- 切换三个 attention backend，长 prefill 和长 decode 两种 workload。
+- 采样参数混合的 TPOT 代价；写并加载一个自定义 logits processor。
+- 简单/复杂 JSON schema 的结构化输出开销，切换 xgrammar / guidance。
 
 交付物：
-- `attention-optimization-notes.md`
+- `model-runner-notes.md`、`attention-backend-report.md`、`sampler-and-structured-output.md`
 
 ### Day 14: Week 2 综合调优实验
 

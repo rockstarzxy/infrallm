@@ -139,7 +139,9 @@ done
 **调优策略**：
 - 关注 ITL/TPOT 稳定性时：设小一些（如 2048-8192），让长 prefill 更容易被切分，减少 decode 被拖慢
 - 关注 TTFT 和总体吞吐时：设大一些，减少 prefill 的 iteration 次数
-- 默认值随 vLLM 版本、V0/V1、硬件和使用场景变化；以当前版本启动日志和官方配置文档为准
+- 默认值随 vLLM 版本、硬件和使用场景变化（V1 按 `UsageContext` 和显存大小分级给默认值）；以当前版本启动日志和官方配置文档为准
+- 机制层面：V1 调度器把它当作每步的 token budget，decode 请求每个占 1，剩余全部给 prefill 分片。Day 9 逐行读这段代码
+- 相关联的长 prefill 保护参数：`--max-num-partial-prefills`、`--max-long-partial-prefills`、`--long-prefill-token-threshold`
 
 ---
 

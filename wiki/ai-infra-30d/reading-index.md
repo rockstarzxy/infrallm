@@ -4,12 +4,16 @@ type: synthesis
 tags: [ai-infra, reading-list, learning-path]
 sources: []
 created: 2026-06-01
-updated: 2026-06-01
+updated: 2026-09-27
 ---
 
 # 30 天推理优化学习 — 内容索引
 
 本目录为 [[ai-inference-learning-path]] 的配套自包含学习材料。每天一篇完整教程，直接阅读即可学习；涉及 vLLM / TensorRT-LLM / SGLang 的具体参数、默认值和指标名时，以当前安装版本的 `--help`、启动日志和官方文档为准。
+
+外部辅助课程见 [[supplementary-courses]]。
+
+Week 2 的 Day 8/9/10/13 是源码级内容，按 vLLM V1（`vllm/v1/`）编写，每天都有改源码的交付物。开始 Week 2 前先从源码安装 vLLM（`VLLM_USE_PRECOMPILED=1 pip install -e .`）。
 
 ## Week 1: 推理系统基础与 vLLM 上手
 
@@ -27,12 +31,12 @@ updated: 2026-06-01
 
 | 天 | 文件 | 主题 | 核心内容 |
 |---:|---|---|---|
-| 8 | [[day08-vllm-architecture]] | vLLM 架构 | 源码目录、请求生命周期、模型实现、backend services |
-| 9 | [[day09-scheduler]] | Scheduler 深入 | 三队列状态机、preemption、chunked prefill 调度、priority |
-| 10 | [[day10-kv-cache]] | KV Cache 优化 | prefix caching、chunked prefill、KV 量化、eviction 策略 |
+| 8 | [[day08-vllm-architecture]] | vLLM V1 架构（源码级） | 三层进程模型、ZMQ/msgspec、带路径的请求生命周期、CPU 开销分布、加自定义指标 |
+| 9 | [[day09-scheduler]] | V1 Scheduler 精读 | token budget 循环、num_computed_tokens、recompute 抢占、priority、async scheduling、自定义调度器 |
+| 10 | [[day10-kv-cache]] | KVCacheManager 与 KV Connector | BlockPool/hash 链/LRU 驱逐、hybrid KV、connector 接口、写文件 connector、KV FP8 |
 | 11 | [[day11-quantization]] | 量化 | GPTQ/AWQ/SmoothQuant/FP8、训练推理一致性 |
 | 12 | [[day12-speculative-decoding]] | 推测解码 | draft model、acceptance rate、Medusa/EAGLE/n-gram |
-| 13 | [[day13-flash-attention]] | FlashAttention | IO-aware tiling、online softmax、FlashDecoding |
+| 13 | [[day13-flash-attention]] | 模型执行层 | GPUModelRunner、persistent batch、torch.compile/piecewise CUDA graph、attention backend、FlashAttention、sampler/logits processor/结构化输出 |
 | 14 | [[day14-tuning-playbook]] | 综合调优 | 优化决策表、场景化配方、常见陷阱 |
 
 ## Week 3: 分布式推理与部署

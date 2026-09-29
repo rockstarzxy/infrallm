@@ -92,6 +92,8 @@ vLLM 论文的实测结果：KV Cache 利用率从 ~20-40% 提升到 ~96%+。相
 
 ## Part 3: 更深入理解 Block Manager
 
+> 说明：本 Part 讲的是 PagedAttention 论文（2023）里的设计。vLLM V1 的实际实现在 Day 10 讲，它和论文有三处不同：没有 swap（抢占只有 recompute）、没有 copy-on-write（`n>1` 拆成独立请求靠 prefix cache 共享）、prefix caching 内建在 block 生命周期里且默认开启。今天先理解论文的思想，Day 10 再对照真实代码。
+
 ### Block 的数据结构
 
 每个物理 block 存储 block_size 个 token 的 K 和 V：
@@ -112,12 +114,12 @@ Llama-3-8B, block_size=16, FP16:
 
 ### Preemption 机制
 
-当物理 block 全部用完而新请求到来时，vLLM 有两种策略：
+当物理 block 全部用完而 running 请求还需要新 block 时，论文和 V0 有两种策略：
 
 1. **Swap**：将低优先级请求的 KV Cache 从 GPU 移到 CPU 内存，腾出 block。该请求暂停，等有空闲 block 时再 swap 回来继续。
 2. **Recompute**：直接丢弃被抢占请求的 KV Cache，等资源够时从头重算 prefill。
 
-Preemption 是很昂贵的操作（swap 有数据搬移开销，recompute 有重复计算开销），应该尽量避免。
+**V1 只保留了 recompute。** 原因是被抢占请求的 block 释放后仍带着 prefix cache 的 hash，重新调度时大概率直接命中，实际重算量很小，比 PCIe 来回拷贝便宜（Day 9/10 展开）。Preemption 仍然是要尽量避免的事件，`vllm:num_preemptions_total` 持续增长说明 KV 不够。
 
 ### Copy-on-Write (COW)
 
@@ -133,6 +135,8 @@ Request B: system_prompt + user_msg_B
 ```
 
 当需要修改共享 block 时（某个请求要在共享 block 中写入新 token），先复制一份，再修改——即 Copy-on-Write。
+
+论文用 CoW 处理 beam search 和 parallel sampling 的分叉。V1 里只有写满的 block 才会被共享（prefix cache），不满的尾 block 永远私有，所以分叉时不需要复制，CoW 机制被删掉了。
 
 ---
 
@@ -289,5 +293,5 @@ watch -n 1 'curl -s http://localhost:8000/metrics | grep gpu_cache_usage'
 2. Block size 设大或设小各有什么影响？
 3. 什么时候会触发 preemption？有几种 preemption 策略？
 4. Continuous batching 和 static batching 在哪一步有本质区别？
-5. PagedAttention 的 Copy-on-Write 在什么场景下触发？
+5. 论文里的 Copy-on-Write 在什么场景下触发？V1 为什么不再需要它？
 6. DeepSeek 的 MLA 对 KV Cache 管理有什么不同？

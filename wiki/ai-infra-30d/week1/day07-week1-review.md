@@ -196,13 +196,15 @@ A: 按层排查：
 
 下周的重点是从"会用 vLLM"到"理解 vLLM 的内部机制"和"掌握核心优化技术"：
 
-- Day 8: vLLM 架构源码阅读
-- Day 9: Scheduler 深入
-- Day 10: KV Cache 优化（prefix caching, chunked prefill）
+- Day 8: vLLM V1 架构与请求生命周期（进程模型、IPC、带路径的源码导读、加自定义指标）
+- Day 9: V1 Scheduler 逐段精读（token budget、抢占、priority、async scheduling、自定义调度器）
+- Day 10: KVCacheManager、prefix caching 实现、hybrid KV、KV connector
 - Day 11: Quantization（量化）
-- Day 12: Speculative Decoding（推测解码）
-- Day 13: FlashAttention
+- Day 12: Speculative Decoding（推测解码，V1 配置）
+- Day 13: 模型执行层（GPUModelRunner、CUDA graph、attention backend、FlashAttention、sampler、结构化输出）
 - Day 14: 综合调优 playbook
+
+从 Day 8 起每天都有改源码的交付物。先用 `VLLM_USE_PRECOMPILED=1 pip install -e .` 从源码装好 vLLM。
 
 ---
 

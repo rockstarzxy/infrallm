@@ -16,8 +16,11 @@ updated: 2026-06-01
 
 | 优化技术 | 适合场景 | 不适合场景 | 前提条件 | 核心收益 |
 |---|---|---|---|---|
-| **Prefix Caching** | 大量请求共享前缀（固定 system prompt、RAG） | 每个请求完全不同 | 版本相关：可能默认开启，也可显式配置 | 降低 TTFT |
-| **Chunked Prefill** | 长短 prompt 混合 workload | 全是短 prompt | vLLM V1 支持时通常默认启用；重点调 `max_num_batched_tokens` | 稳定 TPOT |
+| **Prefix Caching** | 大量请求共享前缀（固定 system prompt、RAG） | 每个请求完全不同（开着也无害） | V1 默认开启；多租户加 `cache_salt`；看 `prefix_cache_hits/queries` | 降低 TTFT |
+| **Chunked Prefill** | 长短 prompt 混合 workload | 纯离线批量（可关以提高 prefill 效率） | V1 默认行为；调 `max_num_batched_tokens` 和长 prefill 保护参数 | 稳定 TPOT |
+| **CUDA graph 模式** | decode 主导、小 batch | 调试 | `--compilation-config cudagraph_mode`，`FULL_AND_PIECEWISE` 需 backend 支持 | 降低 TPOT |
+| **Async scheduling** | 高并发 decode，CPU 是瓶颈 | 与 spec decode / 结构化输出同时用时看版本兼容性 | `--async-scheduling` | 提升 throughput |
+| **统一采样参数** | 高并发 | — | 避免 batch 内混合 penalty / logit_bias | 降低 sampler 开销 |
 | **FP8 量化** | H100+，需要提升吞吐 | 非 H100 硬件 | `--quantization fp8` | 吞吐 ~2x |
 | **AWQ/GPTQ 4-bit** | 显存受限，需要在小 GPU 上跑大模型 | 对质量极度敏感 | 预量化模型 | 显存 ~4x 节省 |
 | **KV Cache FP8** | 需要更多并发 | 对长序列质量敏感 | `--kv-cache-dtype fp8` | KV Cache 减半 |
@@ -53,9 +56,9 @@ vllm serve Qwen/Qwen2.5-72B-Instruct-AWQ \
   --tensor-parallel-size 4 \
   --max-model-len 8192 \
   --max-num-seqs 16 \
-  --speculative-model Qwen/Qwen2.5-0.5B-Instruct \
-  --num-speculative-tokens 5
+  --speculative-config '{"method":"ngram","num_speculative_tokens":5,"prompt_lookup_max":4}'
 ```
+（代码生成重复片段多，n-gram 接受率高且不占额外显存；有 EAGLE-3 head 时换 `"method":"eagle3"`）
 
 **场景 D: 高吞吐 API 服务（成本优先）**
 ```bash
@@ -133,20 +136,20 @@ Baseline → +prefix_caching → +chunked_prefill → +fp8 → +调整 max_num_s
 ## Part 3: Week 2 知识串联
 
 ```
-Day 8:  vLLM 架构
-        → Engine → Scheduler → Block Manager → Worker → Model Runner
-        → 理解代码是如何组织和运行的
+Day 8:  vLLM V1 架构
+        → API server 进程（AsyncLLM/Processor/OutputProcessor）
+        → EngineCore 进程（Scheduler/KVCacheManager）→ Worker 进程（GPUModelRunner）
+        → ZMQ + msgspec；CPU 开销分布；自定义指标
 
-Day 9:  Scheduler 深入
-        → WAITING/RUNNING/SWAPPED 三队列
-        → Preemption 机制（swap / recompute）
-        → Chunked prefill 解决 prefill 阻塞 decode
+Day 9:  V1 Scheduler
+        → 单一 token budget 循环，num_computed_tokens 统一 prefill/decode/chunked/spec
+        → 抢占只有 recompute，最晚到的先被踢；priority / async scheduling / scheduler-cls
 
-Day 10: KV Cache 优化
-        → Prefix caching: 复用共享前缀
-        → Chunked prefill: 长 prefill 分片
-        → KV 量化: FP8 减半 cache 大小
-        → Eviction: StreamingLLM / H2O
+Day 10: KVCacheManager
+        → BlockPool + free 队列 + hash 链 = 自动 prefix caching，LRU 惰性驱逐
+        → hybrid KV（full/sliding/Mamba 多 manager）
+        → KV connector 接口：P/D 解耦、offload 的唯一通道
+        → KV FP8；有损方法（StreamingLLM/H2O）只做了解
 
 Day 11: Quantization
         → GPTQ (二阶优化) vs AWQ (activation-aware) vs SmoothQuant (W8A8)
@@ -158,10 +161,11 @@ Day 12: Speculative Decoding
         → Acceptance rate 决定收益
         → 适合低并发 + 长输出 + 低 temperature
 
-Day 13: FlashAttention
-        → IO-aware tiling: 不写 N×N 到 HBM
-        → Online softmax: 分块计算全局 softmax
-        → FlashDecoding: decode 阶段的并行优化
+Day 13: 模型执行层
+        → GPUModelRunner 五阶段，persistent batch，slot_mapping
+        → torch.compile + piecewise CUDA graph；cudagraph_mode
+        → attention backend 选择；FlashAttention tiling / online softmax / FlashDecoding
+        → Sampler 顺序、logits processor、结构化输出 bitmask
 ```
 
 ---

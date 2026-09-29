@@ -187,12 +187,30 @@ INFO: # GPU blocks: XXXX, # CPU blocks: XXXX
 
 ### `--enforce-eager`
 
-禁用 CUDA Graph，使用 eager mode 执行。
+同时禁用 torch.compile 和 CUDA Graph，使用 eager mode 执行。
 
-- CUDA Graph：将一系列 GPU 操作"录制"成一个 graph，后续回放跳过 CPU 调度开销
-- 默认 vLLM 使用 CUDA Graph 加速 decode 阶段
-- `--enforce-eager` 适合调试或遇到兼容性问题时使用
-- 性能影响：CUDA Graph 通常带来 10-30% 的 decode 加速
+- CUDA Graph：将一系列 GPU 操作"录制"成一个 graph，后续回放跳过 CPU launch 开销
+- torch.compile：算子融合和 Triton kernel 生成
+- V1 默认两者都开，用 piecewise CUDA graph 加速 decode（Day 13 讲机制）
+- `--enforce-eager` 适合调试或遇到兼容性问题时使用；只想关其中一个用 `--compilation-config`
+- 性能影响：CUDA Graph 通常带来 10-30% 的 decode 加速，启动时多几十秒的编译和录制时间
+
+### V1 时代的其他关键参数（Week 2 逐个展开）
+
+| 参数 | 作用 | 展开 |
+|---|---|---|
+| `--compilation-config '{"cudagraph_mode":...}'` / `-O3` | torch.compile 级别、CUDA graph 模式和分桶 | Day 13 |
+| `--async-scheduling` | 调度和 GPU 执行重叠，降低 CPU 空隙 | Day 9 |
+| `--scheduling-policy fcfs|priority` | 请求出队和抢占顺序 | Day 9 |
+| `--speculative-config '{"method":"ngram",...}'` | 推测解码（V1 统一入口，替代旧的 `--speculative-model`） | Day 12 |
+| `--structured-outputs-config '{"backend":"xgrammar"}'` | 结构化输出后端 | Day 13 |
+| `--kv-transfer-config '{"kv_connector":...}'` | KV connector：P/D 解耦、offload | Day 10 / 24 |
+| `--data-parallel-size N` | 引擎原生数据并行 | Day 18 |
+| `--api-server-count N` | 多个前端进程分担 tokenize/detokenize | Day 8 |
+| `--no-enable-prefix-caching` | V1 默认开 prefix caching，这是关闭开关 | Day 10 |
+| `--logits-processors` / `--scheduler-cls` | 插件式扩展点 | Day 13 / 9 |
+
+不要求今天记住，知道有这些开关、知道它们在哪一天讲即可。
 
 ---
 
